@@ -1,0 +1,7 @@
+backend/grailed_session.json
+backend/grailed_tracker.db
+backend/.venv
+frontend/.next
+frontend/node_modules
+.env
+.env.local
