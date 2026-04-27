@@ -7,8 +7,6 @@ from app.scraper.base import ScraperStrategy
 
 logger = logging.getLogger(__name__)
 
-# Verified against live Grailed DOM via Playwright inspection
-PRICE_SELECTOR = 'span[data-testid="Current"]'  # first match = listing price; others are similar listings
 
 SOLD_INDICATORS = [
     'button:has-text("Sold")',
@@ -84,13 +82,22 @@ class ListingStrategy(ScraperStrategy):
         return title or None, image_url or None
 
     async def _get_price(self, page) -> float | None:
-        try:
-            el = await page.wait_for_selector(PRICE_SELECTOR, timeout=5_000)
-            if el:
-                text = await el.inner_text()
-                match = re.search(r"[\d,]+(?:\.\d{1,2})?", text)
-                if match:
-                    return float(match.group().replace(",", ""))
-        except PlaywrightTimeoutError:
-            pass
+        # JSON-LD is the only reliable price source on Grailed listing pages.
+        # All span[data-testid="Current"] elements belong to the similar-listings carousel.
+        price = await page.evaluate("""
+            () => {
+                const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+                for (const s of scripts) {
+                    try {
+                        const data = JSON.parse(s.textContent);
+                        if (data['@type'] === 'Product' && data.offers?.price) {
+                            return parseFloat(data.offers.price);
+                        }
+                    } catch {}
+                }
+                return null;
+            }
+        """)
+        if price is not None:
+            return float(price)
         return await self._extract_price_fallback(page)
